@@ -29,7 +29,7 @@ public class Demo4 {
 					}
 				}
 			} catch (Exception e) {}
-			comm.close();
+			comm.finish();
 		}
 
 	}
@@ -44,7 +44,7 @@ public class Demo4 {
 		 */
 		
 		// Connect to a PSimJ Pool
-		Pool pool = new Pool("127.0.0.1", 8191);
+		Pool pool = new Pool("medixsrv.cstcis.cti.depaul.edu", 8191);
 		
 		// Authenticate using a key
 		pool.useAuthentication(new PoolKey("./pseudo.key"));

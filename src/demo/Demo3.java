@@ -31,7 +31,7 @@ public class Demo3 {
 					}
 				}
 			} catch (Exception e) {}
-			comm.close();
+			comm.finish();
 		}
 
 	}

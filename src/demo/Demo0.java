@@ -14,7 +14,7 @@ public class Demo0 {
 			// Every Rank prints a message
 			System.out.println("Hello from rank " + comm.rank() + "!");
 			
-			comm.close();
+			comm.finish();
 		}
 
 	}

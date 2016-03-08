@@ -24,27 +24,26 @@ import psimj.Topology;
 import psimjpool.Pool;
 import psimjpool.PoolKey;
 
-public class Hough implements Task {
-	
-	static String path = "input512.jpg";
+public class Hough implements Task, Runnable {
+
+	static final int CORE_COUNT = 1;//Runtime.getRuntime().availableProcessors();
+	static final String INPUT_PATH = "exampleInput/input256.jpg";
 	
 	public static void main(String[] args) throws Exception {
-		Pool pool = new Pool("127.0.0.1", 8191);
+		Pool pool = new Pool("medixsrv.cstcis.cti.depaul.edu", 8191);
 		pool.useAuthentication(new PoolKey("./pseudo.key"));
 		//BufferedImage img = ImageIO.read(new File(path));
 		//Hough h = new Hough();
 
 		
-		Communicator comm = new LocalCommunicator(1, new Topology.Switch());
-		//Communicator comm = pool.requestCommunicator(4);
+		//Communicator comm = new LocalCommunicator(12, new Topology.Switch());
+		Communicator comm = pool.requestCommunicator(Pool.ALL);
 		if (comm != null) {
 			comm.runTask(Hough.class);
 		}
-		
 	}
 
 	HashMap<Integer,List<Integer[]>> circleKernel = new HashMap<Integer, List<Integer[]>>();
-	
 	@SuppressWarnings("unchecked")
 	@Override
 	public void run(Communicator comm) {
@@ -52,8 +51,9 @@ public class Hough implements Task {
 			long time = System.currentTimeMillis();
 			byte[] data = null;
 			if (comm.rank() == 0) {
+				System.out.println("Nodes connected: " + comm.nprocs());
 				try {
-					data = Files.readAllBytes(Paths.get(path));
+					data = Files.readAllBytes(Paths.get(INPUT_PATH));
 				} catch (IOException e) {
 					e.printStackTrace();
 				}
@@ -101,43 +101,28 @@ public class Hough implements Task {
 				int rValuesPerNode = (int)Math.ceil((r_max / (double)comm.nprocs()));
 				r_start = (comm.rank() * rValuesPerNode);
 				r_end = (((comm.rank() + 1) * rValuesPerNode));
+				if (comm.rank() == 0) {
+					System.out.println("Node " + comm.rank() + " gets " + r_start + " to " + r_end + " (" + (r_end - r_start) + " total)");
+				}
 			}
 			
 			//Utilize cores
 			//Optimally, we should use the same model, but oh well
-			int cores = Runtime.getRuntime().availableProcessors();
-			ExecutorService executor = Executors.newFixedThreadPool(cores);
-			Runnable[] threads = new Runnable[cores];
+			ExecutorService executor = Executors.newFixedThreadPool(CORE_COUNT);
+			Hough[] threads = new Hough[CORE_COUNT];
 			int r_total = r_end - r_start;
-			int rValuesPerThread = (int)Math.ceil((r_total / (double)cores));
+			int rValuesPerThread = (int)Math.ceil((r_total / (double)CORE_COUNT));
 			
-			ArrayList<ArrayList<Integer[]>> results = new ArrayList<ArrayList<Integer[]>>();
-			for (int i = 0; i < cores; i++) {
-				final int j = i;
-				final int rs = r_start;
-				threads[i] = new java.lang.Runnable() {
-					@Override
-					public void run() {
-						try {
-							int k = j;
-							//System.out.println("Thread " + k + " gets " + (rs + (k * rValuesPerThread)) + " to " + (rs + ((k + 1) * rValuesPerThread)));
-							ArrayList<Integer[]> maxima = hough(img, rs + (k * rValuesPerThread), rs + ((k + 1) * rValuesPerThread));
-							//System.out.println("Thread " + k + " finds " + maxima.size() + " maxima");
-							synchronized(results) {
-								results.add(maxima);
-							}
-						} catch (Exception e) {
-							e.printStackTrace();
-						}
-					}};
+			for (int i = 0; i < CORE_COUNT; i++) {
+				threads[i] = new Hough(img, r_start + (i * rValuesPerThread), r_start + ((i + 1) * rValuesPerThread));
 				executor.submit(threads[i]);
 			}
 			executor.shutdown();
 			executor.awaitTermination(Long.MAX_VALUE, TimeUnit.SECONDS);
 			
 			ArrayList<Integer[]> maxima = new ArrayList<Integer[]>();
-			for (ArrayList<Integer[]> result : results) {
-				maxima.addAll(result);
+			for (Hough thread : threads) {
+				maxima.addAll(thread.result);
 			}
 			
 			//Single thread
@@ -158,20 +143,22 @@ public class Hough implements Task {
 				File f = new File("overlay.png");
 				drawOverlay(img, allMaxima, w, h, f);
 				System.out.println("Overlay saved as " + f.getAbsolutePath());
-				System.out.println("Total elapsed time: " + (System.currentTimeMillis() - time) + "ms");
+				System.out.println("Total elapsed time: " + timeFormat((int)(System.currentTimeMillis() - time)));
 			}
-			comm.close();
+			comm.finish();
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
 	}
 	public static String timeFormat(int millis) {
-		return String.format("%02d:%02d:%02d", 
+		return String.format("%02d:%02d:%02d.%03d", 
 			    TimeUnit.MILLISECONDS.toHours(millis),
 			    TimeUnit.MILLISECONDS.toMinutes(millis) - 
 			    TimeUnit.HOURS.toMinutes(TimeUnit.MILLISECONDS.toHours(millis)),
 			    TimeUnit.MILLISECONDS.toSeconds(millis) - 
-			    TimeUnit.MINUTES.toSeconds(TimeUnit.MILLISECONDS.toMinutes(millis)));
+			    TimeUnit.MINUTES.toSeconds(TimeUnit.MILLISECONDS.toMinutes(millis)),
+			    millis % 1000
+				);
 	}
 	/**
 	 * Solves the equation in estimateCost for a specific r_end given an r_start
@@ -459,5 +446,25 @@ public class Hough implements Task {
 
 	private static Integer[] maximum(int r, int x, int y, int v) {
 		return new Integer[] {r, x, y, v};
+	}
+	
+	// Alternative class constructor and behavior for threading
+	private BufferedImage img;
+	private int start;
+	private int end;
+	public ArrayList<Integer[]> result;
+	public Hough () {}
+	public Hough (BufferedImage img, int s, int e) {
+		this.img = img;
+		this.start = s;
+		this.end = e;
+	}
+	@Override
+	public void run() {
+		try {
+			result = hough(img, start, end);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 	}
 }

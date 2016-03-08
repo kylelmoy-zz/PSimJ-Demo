@@ -24,7 +24,7 @@ public class Demo1 {
 					}
 				}
 			} catch (TopologyViolationException e) {}
-			comm.close();
+			comm.finish();
 		}
 
 	}

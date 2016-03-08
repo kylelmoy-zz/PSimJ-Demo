@@ -132,7 +132,7 @@ public class HoughExceedinglyBroken implements Task {
 				System.out.println("Total elapsed time: " + (System.currentTimeMillis() - time) + "ms");
 			}
 			
-			comm.close();
+			comm.finish();
 		} catch (Exception e) {
 			e.printStackTrace();
 		}

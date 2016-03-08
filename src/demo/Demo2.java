@@ -55,7 +55,7 @@ public class Demo2 {
 			} catch (TopologyViolationException e) {
 				e.printStackTrace();
 			}
-			comm.close();
+			comm.finish();
 		}
 
 	}
